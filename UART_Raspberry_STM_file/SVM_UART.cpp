@@ -1,5 +1,8 @@
 #include "SVM_UART.h"
 
+struct Status_Flag Flag;
+MESSAGE_TYPEDEF Message;
+
 static uint8_t Checksum(uint8_t *arr, int length)
 {
     int sum = 0;
@@ -65,21 +68,87 @@ void Print_Message(void)
     }
 }
 
+void Get_RFID(uint8_t *array_16bytes)
+{
+    for(int i=0; i<16; i++)
+        array_16bytes[i] = Rx_Buffer.RFID[i];
+
+    for(int i=0; i<16; i++)
+        Rx_Buffer.RFID[i] = 0;
+}
+
+uint8_t Get_Message(void)
+{
+    uint8_t temp = Rx_Buffer.Message;
+    Rx_Buffer.Message = 0x00;
+    return temp;
+}
+
 void Receive_Data_Processing(uint8_t *buf, int length)
 {
-    // RFID data
-    if(buf[0] == 'R' && buf[1] == 'I' && buf[2] == 'D' && buf[length-1] == Checksum(buf,length))
+    count_data+=length;
+    for(int i=0;i<length;i++) 
     {
-        for(int i=0; i<16; i++)
-            Rx_Buffer.RFID[i] = buf[i+3];
-        Print_RFID();
+        Rx_Buffer.Data[count_data-1] = buf[i];
     }
-
-    // Message
-    if(buf[0] == 'M' && buf[1] == 'S' && buf[2] == 'G' && buf[length-1] == Checksum(buf,length))
+    if(count_data == 3)
     {
-        Rx_Buffer.Message = buf[3];
-        Print_Message();
+        if(Rx_Buffer.Data[0] == 'R' && Rx_Buffer.Data[1] == 'I' && Rx_Buffer.Data[2] == 'D')
+        {
+            Flag.RFID_enable = true;
+        }
+        else if(Rx_Buffer.Data[0] == 'M' && Rx_Buffer.Data[1] == 'S' && Rx_Buffer.Data[2] == 'G')
+        {
+            Flag.Msg_enable = true;
+        }
+    }
+    if(Flag.RFID_enable)
+    {
+        for(int i=0;i<length;i++) 
+        {
+            Rx_Buffer.Data[count_data-1] = buf[i];
+        }
+        if(count_data == 20)
+        {
+            if(Rx_Buffer.Data[19] == Checksum(Rx_Buffer.Data,20))
+            {
+                for(int i=0; i<16; i++)
+                    Rx_Buffer.RFID[i] = Rx_Buffer.Data[i+3];
+                Flag.RFID_available = true;
+                cout << "Receive RFID sucessfully" << endl;
+            }
+            Flag.RFID_enable = false;
+            count_data = 0;
+        }
+    }
+    else if(Flag.Msg_enable)
+    {
+        for(int i=0;i<length;i++) 
+        {
+            Rx_Buffer.Data[count_data-1] = buf[i];
+        }
+        if(count_data == 5)
+        {
+            if(Rx_Buffer.Data[4] == Checksum(Rx_Buffer.Data,5))
+            {
+                Rx_Buffer.Message = Rx_Buffer.Data[3];
+                Flag.Msg_available = true;
+                switch(Rx_Buffer.Message)
+                {
+                    case No_Problem:
+                        cout << "No problem" << endl;
+                    break;
+                    case Warning:
+                        cout << "Warning" << endl;
+                    break;
+                    case Error:
+                        cout << "Error" << endl;
+                    break;
+                }
+            }
+            Flag.Msg_enable = false;
+            count_data = 0;
+        }
     }
 }
 
@@ -89,8 +158,8 @@ int main(){
 
     while(1)
     {
-        UART_Send_MotorInfo(1,2,3);
-        //delay(1000);
+        UART_Send_MotorInfo(2,5,3);
+        delay(1000);
     }
 
     return 0;
